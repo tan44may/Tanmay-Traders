@@ -59,6 +59,32 @@ const createPatti = async (req, res) => {
   }
 };
 
+// @desc    Get all Patti records
+// @route   GET /api/patti
+// @access  Public
+const getAllPattis = async (req, res) => {
+  try {
+    // Sorting by createdAt descending gives us the newest entries first,
+    // which accurately represents the dates they were created.
+    const pattis = await Patti.find().sort({ createdAt: -1 });
+    
+    res.status(200).json({
+      success: true,
+      count: pattis.length,
+      data: pattis,
+      message: 'Patti records fetched successfully'
+    });
+  } catch (error) {
+    console.error('Error fetching pattis:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch Patti records',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
-  createPatti
+  createPatti,
+  getAllPattis
 };
