@@ -19,27 +19,41 @@ app.get('/', (req, res) => {
   res.send('Tanmay Traders API is running...');
 });
 
-// Database Connection for Serverless Environment
-let isConnected = false;
-let connectionError = null;
+// Global is used here to maintain a cached connection across hot reloads
+// in serverless environments.
+let cached = global.mongoose;
 
-const connectDB = async () => {
-  if (isConnected) {
-    return;
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
+async function connectDB() {
+  if (cached.conn) {
+    return cached.conn;
   }
-  try {
-    const db = await mongoose.connect(process.env.MONGODB_URI, { 
-      serverSelectionTimeoutMS: 5000 
+
+  if (!cached.promise) {
+    const opts = {
+      bufferCommands: false,
+      serverSelectionTimeoutMS: 5000,
+    };
+
+    cached.promise = mongoose.connect(process.env.MONGODB_URI, opts).then((mongoose) => {
+      console.log('MongoDB Connected successfully!');
+      return mongoose;
     });
-    isConnected = db.connections[0].readyState === 1;
-    connectionError = null;
-    console.log(`MongoDB Connected`);
-  } catch (error) {
-    console.error(`Error connecting to MongoDB: ${error.message}`);
-    connectionError = error.message;
-    throw error;
   }
-};
+  
+  try {
+    cached.conn = await cached.promise;
+  } catch (e) {
+    cached.promise = null;
+    console.error('MongoDB connection error:', e);
+    throw e;
+  }
+
+  return cached.conn;
+}
 
 // Ensure DB is connected before handling any requests
 app.use(async (req, res, next) => {
@@ -50,8 +64,7 @@ app.use(async (req, res, next) => {
     return res.status(500).json({ 
       success: false, 
       message: 'Database connection failed', 
-      error: connectionError || error.message,
-      uri_exists: !!process.env.MONGODB_URI
+      error: error.message
     });
   }
 });
