@@ -22,23 +22,28 @@ const createBill = async (req, res) => {
       return res.status(400).json({ message: 'Please provide all required fields' });
     }
 
-    const calculatedTotalAmount = quantity * rate;
-    const calculatedTolaiDeduction = tolaiRate * quantity;
-    // Calculate commission as a percentage (user mentioned 1% of rate*quantity).
-    // Using commissionRate as the percentage (defaulting to 1% if not provided).
-    const actualCommissionRate = (commissionRate !== undefined && commissionRate !== null) ? commissionRate : 1;
-    const calculatedCommissionAddition = (calculatedTotalAmount * actualCommissionRate) / 100;
+    // Parse inputs to numbers to ensure safe calculations
+    const numQuantity = Number(quantity) || 0;
+    const numRate = Number(rate) || 0;
+    const numTolaiRate = Number(tolaiRate) || 0;
+    const numCommissionRate = Number(commissionRate) || 0;
+
+    const calculatedTotalAmount = numQuantity * numRate;
+    const calculatedTolaiDeduction = numTolaiRate * numQuantity;
+    // commissionAddition=(commissionrate*totalamount)/100
+    const calculatedCommissionAddition = (numCommissionRate * calculatedTotalAmount) / 100;
     
+    // grandtotal=totalamount-tolai deduction +commissionAddition
     const calculatedGrandTotal = calculatedTotalAmount - calculatedTolaiDeduction + calculatedCommissionAddition;
 
     const newBill = new Bill({
       date,
       merchantName,
       cropName,
-      quantity,
-      rate,
-      tolaiRate,
-      commissionRate,
+      quantity: numQuantity,
+      rate: numRate,
+      tolaiRate: numTolaiRate,
+      commissionRate: numCommissionRate,
       totalAmount: calculatedTotalAmount,
       tolaiDeduction: calculatedTolaiDeduction,
       commissionAddition: calculatedCommissionAddition,
