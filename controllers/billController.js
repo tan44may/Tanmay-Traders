@@ -22,9 +22,14 @@ const createBill = async (req, res) => {
       return res.status(400).json({ message: 'Please provide all required fields' });
     }
 
-    const calculatedTotalAmount = totalAmount !== undefined ? totalAmount : (quantity * rate);
-    // Assuming tolaiRate and commissionRate are the absolute deduction/addition amounts if no specific rate logic is given
-    const calculatedGrandTotal = grandTotal !== undefined ? grandTotal : (calculatedTotalAmount - tolaiRate + commissionRate);
+    const calculatedTotalAmount = quantity * rate;
+    const calculatedTolaiDeduction = tolaiRate * quantity;
+    // Calculate commission as a percentage (user mentioned 1% of rate*quantity).
+    // Using commissionRate as the percentage (defaulting to 1% if not provided).
+    const actualCommissionRate = (commissionRate !== undefined && commissionRate !== null) ? commissionRate : 1;
+    const calculatedCommissionAddition = (calculatedTotalAmount * actualCommissionRate) / 100;
+    
+    const calculatedGrandTotal = calculatedTotalAmount - calculatedTolaiDeduction + calculatedCommissionAddition;
 
     const newBill = new Bill({
       date,
@@ -35,6 +40,8 @@ const createBill = async (req, res) => {
       tolaiRate,
       commissionRate,
       totalAmount: calculatedTotalAmount,
+      tolaiDeduction: calculatedTolaiDeduction,
+      commissionAddition: calculatedCommissionAddition,
       grandTotal: calculatedGrandTotal
     });
 
