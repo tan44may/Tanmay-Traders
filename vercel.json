@@ -11,8 +11,5 @@
       "src": "/(.*)",
       "dest": "server.js"
     }
-  ],
-  "env": {
-    "MONGODB_URI": "mongodb+srv://tanmaytathe9:Tanmay123@tanmaytraders.07xra2k.mongodb.net/Tanmay_Traders?retryWrites=true&w=majority"
-  }
+  ]
 }
