@@ -20,12 +20,15 @@ app.get('/', (req, res) => {
 });
 
 // Database Connection for Serverless Environment
+let isConnected = false;
+
 const connectDB = async () => {
-  if (mongoose.connection.readyState >= 1) {
+  if (isConnected) {
     return;
   }
   try {
-    await mongoose.connect(process.env.MONGODB_URI, { family: 4 });
+    const db = await mongoose.connect(process.env.MONGODB_URI);
+    isConnected = db.connections[0].readyState === 1;
     console.log(`MongoDB Connected`);
   } catch (error) {
     console.error(`Error connecting to MongoDB: ${error.message}`);
