@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 
 const pattiRoutes = require('./routes/pattiRoutes');
+const billRoutes = require('./routes/billRoutes');
 
 const app = express();
 
@@ -30,9 +31,16 @@ app.use(async (req, res, next) => {
 
 // ✅ Routes AFTER DB
 app.use('/api/patti', pattiRoutes);
+app.use('/api/bill', billRoutes);
 
 app.get('/', (req, res) => {
   res.send('API running...');
 });
+if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(`Server running locally on port ${PORT}`);
+  });
+}
 
 module.exports = app;
