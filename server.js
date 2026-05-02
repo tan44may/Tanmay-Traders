@@ -21,24 +21,39 @@ app.get('/', (req, res) => {
 
 // Database Connection for Serverless Environment
 let isConnected = false;
+let connectionError = null;
 
 const connectDB = async () => {
   if (isConnected) {
     return;
   }
   try {
-    const db = await mongoose.connect(process.env.MONGODB_URI);
+    const db = await mongoose.connect(process.env.MONGODB_URI, { 
+      serverSelectionTimeoutMS: 5000 
+    });
     isConnected = db.connections[0].readyState === 1;
+    connectionError = null;
     console.log(`MongoDB Connected`);
   } catch (error) {
     console.error(`Error connecting to MongoDB: ${error.message}`);
+    connectionError = error.message;
+    throw error;
   }
 };
 
 // Ensure DB is connected before handling any requests
 app.use(async (req, res, next) => {
-  await connectDB();
-  next();
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Database connection failed', 
+      error: connectionError || error.message,
+      uri_exists: !!process.env.MONGODB_URI
+    });
+  }
 });
 
 // Start Server for local development
