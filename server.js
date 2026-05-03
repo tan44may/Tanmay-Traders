@@ -6,6 +6,7 @@ const cors = require('cors');
 const pattiRoutes = require('./routes/pattiRoutes');
 const billRoutes = require('./routes/billRoutes');
 const merchantRoutes = require('./routes/merchantRoutes');
+const transactionRoutes = require('./routes/transactionRoutes');
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use(async (req, res, next) => {
 app.use('/api/patti', pattiRoutes);
 app.use('/api/bill', billRoutes);
 app.use('/api/merchant', merchantRoutes);
+app.use('/api/merchant-transactions', transactionRoutes);
 
 app.get('/', (req, res) => {
   res.send('API running...');
