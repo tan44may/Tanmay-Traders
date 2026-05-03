@@ -84,7 +84,37 @@ const getAllPattis = async (req, res) => {
   }
 };
 
+// @desc    Delete a Patti record
+// @route   DELETE /api/patti/:id
+// @access  Public
+const deletePatti = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const patti = await Patti.findByIdAndDelete(id);
+
+    if (!patti) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patti record not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Patti record deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting patti:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete Patti record',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createPatti,
-  getAllPattis
+  getAllPattis,
+  deletePatti
 };

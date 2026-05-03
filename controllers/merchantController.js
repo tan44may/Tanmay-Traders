@@ -68,7 +68,37 @@ const getAllMerchants = async (req, res) => {
   }
 };
 
+// @desc    Delete a Merchant
+// @route   DELETE /api/merchant/:id
+// @access  Public
+const deleteMerchant = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const merchant = await Merchant.findByIdAndDelete(id);
+
+    if (!merchant) {
+      return res.status(404).json({
+        success: false,
+        message: 'Merchant not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Merchant deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting merchant:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete merchant',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createMerchant,
-  getAllMerchants
+  getAllMerchants,
+  deleteMerchant
 };

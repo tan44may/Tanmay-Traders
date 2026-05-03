@@ -78,7 +78,37 @@ const getAllBills = async (req, res) => {
   }
 };
 
+// @desc    Delete a Bill record
+// @route   DELETE /api/bill/:id
+// @access  Public
+const deleteBill = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const bill = await Bill.findByIdAndDelete(id);
+
+    if (!bill) {
+      return res.status(404).json({
+        success: false,
+        message: 'Bill record not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Bill record deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting bill:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete Bill record',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createBill,
-  getAllBills
+  getAllBills,
+  deleteBill
 };
