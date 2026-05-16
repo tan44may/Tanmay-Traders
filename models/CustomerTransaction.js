@@ -25,10 +25,7 @@ const customerTransactionSchema = new mongoose.Schema({
     required: false,
     default: 0
   },
-  cropName: {
-    type: String,
-    required: true
-  },
+
   description: {
     type: String,
     required: false

@@ -6,12 +6,12 @@ const Customer = require('../models/Customer');
 // @access  Public
 const addTransaction = async (req, res) => {
   try {
-    const { customerId, type, amount, date, cropName, description, billNo, interestRate } = req.body;
+    const { customerId, type, amount, date, description, billNo, interestRate } = req.body;
 
-    if (!customerId || !type || !amount || !cropName) {
+    if (!customerId || !type || !amount) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide all required fields (customerId, type, amount, cropName)'
+        message: 'Please provide all required fields (customerId, type, amount)'
       });
     }
 
@@ -21,7 +21,6 @@ const addTransaction = async (req, res) => {
       type,
       amount,
       date: date || Date.now(),
-      cropName,
       description,
       billNo,
       interestRate: type === 'gave' ? (interestRate || 0) : 0
