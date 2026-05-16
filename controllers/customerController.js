@@ -1,4 +1,5 @@
 const Customer = require('../models/Customer');
+const CustomerTransaction = require('../models/CustomerTransaction');
 
 // @desc    Create a new Customer
 // @route   POST /api/customer
@@ -52,11 +53,39 @@ const getAllCustomers = async (req, res) => {
   try {
     const customers = await Customer.find().sort({ createdAt: -1 });
 
+    // Calculate dynamic interest-inclusive balance for each customer
+    const customersWithInterest = await Promise.all(customers.map(async (c) => {
+      const customer = c.toObject();
+      const transactions = await CustomerTransaction.find({ customerId: customer._id });
+      
+      let totalBalance = 0;
+      const currentDate = new Date();
+
+      transactions.forEach(txn => {
+        if (txn.type === 'gave') {
+          let interestAmount = 0;
+          if (txn.interestRate > 0) {
+            const startDate = new Date(txn.date);
+            const diffTime = Math.abs(currentDate - startDate);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            const durationMonths = diffDays / 30;
+            interestAmount = (txn.amount * txn.interestRate * durationMonths) / 100;
+          }
+          totalBalance += (txn.amount + interestAmount);
+        } else {
+          totalBalance -= txn.amount;
+        }
+      });
+
+      customer.balance = Math.round(totalBalance);
+      return customer;
+    }));
+
     res.status(200).json({
       success: true,
-      count: customers.length,
-      data: customers,
-      message: 'Customers fetched successfully'
+      count: customersWithInterest.length,
+      data: customersWithInterest,
+      message: 'Customers fetched successfully with dynamic interest'
     });
   } catch (error) {
     console.error('Error fetching customers:', error);
