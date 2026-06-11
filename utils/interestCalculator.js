@@ -1,4 +1,37 @@
 /**
+ * Calculates calendar months and days between two dates, ignoring timezone and exact time offsets.
+ * 
+ * @param {Date|String} startDateStr 
+ * @param {Date|String} endDateStr 
+ */
+function getDurationInMonths(startDateStr, endDateStr) {
+  const start = new Date(startDateStr);
+  const end = new Date(endDateStr);
+
+  // Normalize both dates to noon to completely ignore time-of-day offsets/DST
+  start.setHours(12, 0, 0, 0);
+  end.setHours(12, 0, 0, 0);
+
+  let months = (end.getFullYear() - start.getFullYear()) * 12;
+  months += end.getMonth() - start.getMonth();
+
+  let days = end.getDate() - start.getDate();
+
+  if (days < 0) {
+    months--;
+    // Get number of days in the previous month relative to the end month
+    const prevMonth = new Date(end.getFullYear(), end.getMonth(), 0);
+    days += prevMonth.getDate();
+  }
+
+  return {
+    months: Math.max(0, months),
+    days: Math.max(0, days),
+    durationMonths: Math.max(0, months + (days / 30))
+  };
+}
+
+/**
  * Calculates interest and running balance using a FIFO allocation of payments to open loans.
  * 
  * @param {Array} transactions - Array of customer transaction documents
@@ -54,10 +87,8 @@ function calculateRunningLedger(transactions, upToDate = new Date()) {
         const loan = activeLoans[i];
         
         // Calculate interest accrued on this loan from loan.lastDate to txnDate
-        const diffTime = txnDate - loan.lastDate;
-        const diffDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-        const durationMonths = diffDays / 30;
-        const interestAmount = (loan.currentPrincipal * loan.interestRate * durationMonths) / 100;
+        const duration = getDurationInMonths(loan.lastDate, txnDate);
+        const interestAmount = (loan.currentPrincipal * loan.interestRate * duration.durationMonths) / 100;
         const totalOwed = loan.currentPrincipal + interestAmount;
 
         if (paymentAmount >= totalOwed) {
@@ -86,14 +117,9 @@ function calculateRunningLedger(transactions, upToDate = new Date()) {
   let totalInterestAccrued = 0;
   
   const processedLoans = activeLoans.map(loan => {
-    const diffTime = upToDate - loan.lastDate;
-    const diffDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-    const durationMonths = diffDays / 30;
-    const interestAmount = (loan.currentPrincipal * loan.interestRate * durationMonths) / 100;
+    const duration = getDurationInMonths(loan.lastDate, upToDate);
+    const interestAmount = (loan.currentPrincipal * loan.interestRate * duration.durationMonths) / 100;
     
-    const totalMonths = Math.floor(diffDays / 30);
-    const remainingDays = diffDays % 30;
-
     totalPrincipal += loan.currentPrincipal;
     totalInterestAccrued += interestAmount;
 
@@ -104,7 +130,7 @@ function calculateRunningLedger(transactions, upToDate = new Date()) {
       currentPrincipal: Math.round(loan.currentPrincipal),
       interestRate: loan.interestRate,
       lastDate: loan.lastDate,
-      duration: `${totalMonths} months ${remainingDays} days`,
+      duration: `${duration.months} months ${duration.days} days`,
       interestAmount: Math.round(interestAmount),
       totalAmount: Math.round(loan.currentPrincipal + interestAmount),
       description: loan.description,
