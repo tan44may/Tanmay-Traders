@@ -1,5 +1,7 @@
 const CustomerTransaction = require('../models/CustomerTransaction');
 const Customer = require('../models/Customer');
+const { calculateRunningLedger } = require('../utils/interestCalculator');
+
 
 // @desc    Add a new transaction for a customer
 // @route   POST /api/customer-transactions
@@ -63,39 +65,17 @@ const getCustomerTransactions = async (req, res) => {
     const transactions = await CustomerTransaction.find({ customerId })
       .sort({ date: -1, createdAt: -1 });
 
-    // Calculate interest for 'gave' transactions
-    const transactionsWithInterest = transactions.map(tx => {
-      const transaction = tx.toObject();
-      if (transaction.type === 'gave' && transaction.interestRate > 0) {
-        const startDate = new Date(transaction.date);
-        const currentDate = new Date();
-        
-        // Calculate duration in days
-        const diffTime = Math.abs(currentDate - startDate);
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
-        // Duration in months (assuming 30 days per month)
-        const months = Math.floor(diffDays / 30);
-        const remainingDays = diffDays % 30;
-        
-        const durationMonths = diffDays / 30;
-        const interestAmount = (transaction.amount * transaction.interestRate * durationMonths) / 100;
-        
-        transaction.interestDetails = {
-          duration: `${months} months ${remainingDays} days`,
-          interestAmount: Math.round(interestAmount),
-          totalAmount: Math.round(transaction.amount + interestAmount),
-          durationInMonths: parseFloat(durationMonths.toFixed(2))
-        };
-      }
-      return transaction;
-    });
+    const currentDate = new Date();
+    const ledger = calculateRunningLedger(transactions, currentDate);
 
     res.status(200).json({
       success: true,
-      count: transactionsWithInterest.length,
-      data: transactionsWithInterest,
-      message: 'Transactions fetched successfully with interest calculations'
+      count: transactions.length,
+      data: {
+        transactions: transactions.map(t => t.toObject()),
+        ledger: ledger
+      },
+      message: 'Transactions and running interest ledger fetched successfully'
     });
   } catch (error) {
     console.error('Error fetching transactions:', error);
