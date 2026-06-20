@@ -10,6 +10,7 @@ const transactionRoutes = require('./routes/transactionRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const customerTransactionRoutes = require('./routes/customerTransactionRoutes');
 const cropRoutes = require('./routes/cropRoutes');
+const bankRoutes = require('./routes/bankRoutes');
 
 const app = express();
 
@@ -42,6 +43,7 @@ app.use('/api/merchant-transactions', transactionRoutes);
 app.use('/api/customer', customerRoutes);
 app.use('/api/customer-transactions', customerTransactionRoutes);
 app.use('/api/crop', cropRoutes);
+app.use('/api/bank', bankRoutes);
 
 app.get('/', (req, res) => {
   res.send('API running...');
