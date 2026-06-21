@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -11,6 +11,7 @@ const customerRoutes = require('./routes/customerRoutes');
 const customerTransactionRoutes = require('./routes/customerTransactionRoutes');
 const cropRoutes = require('./routes/cropRoutes');
 const bankRoutes = require('./routes/bankRoutes');
+const reportRoutes = require('./routes/reportRoutes');
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.use('/api/customer', customerRoutes);
 app.use('/api/customer-transactions', customerTransactionRoutes);
 app.use('/api/crop', cropRoutes);
 app.use('/api/bank', bankRoutes);
+app.use('/api/reports', reportRoutes);
 
 app.get('/', (req, res) => {
   res.send('API running...');
