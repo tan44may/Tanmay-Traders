@@ -56,6 +56,43 @@ const getDailyBalance = async (req, res) => {
   }
 };
 
+const getCommissionsReport = async (req, res) => {
+  try {
+    // 1. Fetch all bills
+    const bills = await Bill.find({}).sort({ date: -1 });
+
+    // 2. Calculate overall commission
+    const overallCommission = bills.reduce((acc, bill) => acc + (bill.commissionAddition || 0), 0);
+
+    // 3. Calculate current month's commission
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonthNum = String(today.getMonth() + 1).padStart(2, '0');
+    const currentMonthPrefix = `${currentYear}-${currentMonthNum}`;
+
+    const currentMonthCommission = bills
+      .filter(bill => bill.date && bill.date.startsWith(currentMonthPrefix))
+      .reduce((acc, bill) => acc + (bill.commissionAddition || 0), 0);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        overallCommission,
+        currentMonthCommission,
+        bills
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching commissions report:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch commissions report',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
-  getDailyBalance
+  getDailyBalance,
+  getCommissionsReport
 };
