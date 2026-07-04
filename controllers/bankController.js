@@ -2,6 +2,8 @@ const BankAccount = require('../models/BankAccount');
 const BankTransaction = require('../models/BankTransaction');
 const Merchant = require('../models/Merchant');
 const MerchantTransaction = require('../models/MerchantTransaction');
+const Customer = require('../models/Customer');
+const CustomerTransaction = require('../models/CustomerTransaction');
 
 // @desc    Create a new Bank Account
 // @route   POST /api/bank
@@ -116,7 +118,7 @@ const deleteBankAccount = async (req, res) => {
 // @access  Public
 const addBankTransaction = async (req, res) => {
   try {
-    const { bankAccountId, type, amount, date, description, transactionType, merchantId, selectedBank } = req.body;
+    const { bankAccountId, type, amount, date, description, transactionType, merchantId, selectedBank, customerId } = req.body;
 
     if (!bankAccountId || !type || !amount) {
       return res.status(400).json({
@@ -127,7 +129,9 @@ const addBankTransaction = async (req, res) => {
 
     const txAmount = Number(amount);
     let savedMerchantTx = null;
+    let savedCustomerTx = null;
     let merchant = null;
+    let customer = null;
 
     // Handle merchant payment automation for deposits (credit transactions)
     if (type === 'credit' && transactionType === 'merchant payment') {
@@ -166,6 +170,42 @@ const addBankTransaction = async (req, res) => {
       );
     }
 
+    // Handle customer payment automation for withdrawals (debit transactions)
+    if (type === 'debit' && (transactionType === 'cheque' || transactionType === 'RTGS' || transactionType === 'rtgs')) {
+      if (!customerId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Customer is required for cheque/RTGS payment'
+        });
+      }
+
+      // Check if customer exists
+      customer = await Customer.findById(customerId);
+      if (!customer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Customer not found'
+        });
+      }
+
+      // Create customer transaction in gave (red) section
+      const customerTx = new CustomerTransaction({
+        customerId,
+        type: 'gave',
+        amount: txAmount,
+        date: date || Date.now(),
+        description: `Bank Withdrawal: ${transactionType.toUpperCase()}`
+      });
+
+      savedCustomerTx = await customerTx.save();
+
+      // Update customer balance (gave increases what they owe us)
+      await Customer.findByIdAndUpdate(
+        customerId,
+        { $inc: { balance: txAmount } }
+      );
+    }
+
     // Set bank transaction description
     let txDescription = description;
     if (type === 'credit') {
@@ -176,6 +216,12 @@ const addBankTransaction = async (req, res) => {
       } else if (transactionType === 'imps') {
         txDescription = description || 'IMPS Transfer';
       }
+    } else if (type === 'debit') {
+      if (transactionType === 'self') {
+        txDescription = 'Self';
+      } else if (transactionType === 'cheque' || transactionType === 'RTGS' || transactionType === 'rtgs') {
+        txDescription = `Customer: ${customer ? customer.customerName : ''} (${transactionType.toUpperCase()})`;
+      }
     }
 
     // Create bank transaction
@@ -185,10 +231,12 @@ const addBankTransaction = async (req, res) => {
       amount: txAmount,
       date: date || Date.now(),
       description: txDescription,
-      transactionType: type === 'credit' ? transactionType : undefined,
+      transactionType: transactionType,
       merchantId: (type === 'credit' && transactionType === 'merchant payment') ? merchantId : undefined,
       selectedBank: (type === 'credit' && transactionType === 'merchant payment') ? selectedBank : undefined,
-      merchantTransactionId: savedMerchantTx ? savedMerchantTx._id : undefined
+      merchantTransactionId: savedMerchantTx ? savedMerchantTx._id : undefined,
+      customerId: (type === 'debit' && (transactionType === 'cheque' || transactionType === 'rtgs' || transactionType === 'RTGS')) ? customerId : undefined,
+      customerTransactionId: savedCustomerTx ? savedCustomerTx._id : undefined
     });
 
     const savedTransaction = await transaction.save();
@@ -281,6 +329,22 @@ const deleteBankTransaction = async (req, res) => {
           { $inc: { balance: merchantRevertAmount } }
         );
         await MerchantTransaction.findByIdAndDelete(transaction.merchantTransactionId);
+      }
+    }
+
+    // If there is a linked customer transaction, delete it and revert customer balance
+    if (transaction.customerTransactionId) {
+      const customerTx = await CustomerTransaction.findById(transaction.customerTransactionId);
+      if (customerTx) {
+        // Revert customer balance
+        // If it was 'gave', we added to balance, so now we subtract.
+        // If it was 'got', we subtracted from balance, so now we add.
+        const customerRevertAmount = customerTx.type === 'gave' ? -customerTx.amount : customerTx.amount;
+        await Customer.findByIdAndUpdate(
+          customerTx.customerId,
+          { $inc: { balance: customerRevertAmount } }
+        );
+        await CustomerTransaction.findByIdAndDelete(transaction.customerTransactionId);
       }
     }
 

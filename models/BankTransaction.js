@@ -42,6 +42,16 @@ const bankTransactionSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'MerchantTransaction',
     required: false
+  },
+  customerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Customer',
+    required: false
+  },
+  customerTransactionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CustomerTransaction',
+    required: false
   }
 }, { timestamps: true });
 
