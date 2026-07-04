@@ -8,10 +8,10 @@ const addTransaction = async (req, res) => {
   try {
     const { merchantId, type, amount, date, cropName, description, billNo } = req.body;
 
-    if (!merchantId || !type || !amount || !cropName) {
+    if (!merchantId || !type || !amount) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide all required fields (merchantId, type, amount, cropName)'
+        message: 'Please provide all required fields (merchantId, type, amount)'
       });
     }
 

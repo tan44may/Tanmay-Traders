@@ -22,7 +22,7 @@ const merchantTransactionSchema = new mongoose.Schema({
   },
   cropName: {
     type: String,
-    required: true
+    required: false
   },
   description: {
     type: String,

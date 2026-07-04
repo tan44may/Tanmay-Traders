@@ -1,5 +1,7 @@
 const BankAccount = require('../models/BankAccount');
 const BankTransaction = require('../models/BankTransaction');
+const Merchant = require('../models/Merchant');
+const MerchantTransaction = require('../models/MerchantTransaction');
 
 // @desc    Create a new Bank Account
 // @route   POST /api/bank
@@ -114,7 +116,7 @@ const deleteBankAccount = async (req, res) => {
 // @access  Public
 const addBankTransaction = async (req, res) => {
   try {
-    const { bankAccountId, type, amount, date, description } = req.body;
+    const { bankAccountId, type, amount, date, description, transactionType, merchantId, selectedBank } = req.body;
 
     if (!bankAccountId || !type || !amount) {
       return res.status(400).json({
@@ -124,14 +126,69 @@ const addBankTransaction = async (req, res) => {
     }
 
     const txAmount = Number(amount);
+    let savedMerchantTx = null;
+    let merchant = null;
 
-    // Create transaction
+    // Handle merchant payment automation for deposits (credit transactions)
+    if (type === 'credit' && transactionType === 'merchant payment') {
+      if (!merchantId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Merchant is required for merchant payment'
+        });
+      }
+
+      // Check if merchant exists
+      merchant = await Merchant.findById(merchantId);
+      if (!merchant) {
+        return res.status(404).json({
+          success: false,
+          message: 'Merchant not found'
+        });
+      }
+
+      // Create merchant transaction in got (green) section
+      const merchantTx = new MerchantTransaction({
+        merchantId,
+        type: 'got',
+        amount: txAmount,
+        date: date || Date.now(),
+        cropName: 'Bank Transaction',
+        description: `Bank Deposit: ${selectedBank || ''}${description ? ' - ' + description : ''}`
+      });
+
+      savedMerchantTx = await merchantTx.save();
+
+      // Update merchant balance (got reduces what they owe us)
+      await Merchant.findByIdAndUpdate(
+        merchantId,
+        { $inc: { balance: -txAmount } }
+      );
+    }
+
+    // Set bank transaction description
+    let txDescription = description;
+    if (type === 'credit') {
+      if (transactionType === 'merchant payment') {
+        txDescription = `Merchant: ${merchant ? merchant.merchantName : ''}${selectedBank ? ' (' + selectedBank + ')' : ''}`;
+      } else if (transactionType === 'cash') {
+        txDescription = 'Cash';
+      } else if (transactionType === 'imps') {
+        txDescription = description || 'IMPS Transfer';
+      }
+    }
+
+    // Create bank transaction
     const transaction = new BankTransaction({
       bankAccountId,
       type,
       amount: txAmount,
       date: date || Date.now(),
-      description
+      description: txDescription,
+      transactionType: type === 'credit' ? transactionType : undefined,
+      merchantId: (type === 'credit' && transactionType === 'merchant payment') ? merchantId : undefined,
+      selectedBank: (type === 'credit' && transactionType === 'merchant payment') ? selectedBank : undefined,
+      merchantTransactionId: savedMerchantTx ? savedMerchantTx._id : undefined
     });
 
     const savedTransaction = await transaction.save();
@@ -210,6 +267,22 @@ const deleteBankTransaction = async (req, res) => {
       transaction.bankAccountId,
       { $inc: { balance: revertAmount } }
     );
+
+    // If there is a linked merchant transaction, delete it and revert merchant balance
+    if (transaction.merchantTransactionId) {
+      const merchantTx = await MerchantTransaction.findById(transaction.merchantTransactionId);
+      if (merchantTx) {
+        // Revert merchant balance
+        // If it was 'gave', we added to balance, so now we subtract.
+        // If it was 'got', we subtracted from balance, so now we add.
+        const merchantRevertAmount = merchantTx.type === 'gave' ? -merchantTx.amount : merchantTx.amount;
+        await Merchant.findByIdAndUpdate(
+          merchantTx.merchantId,
+          { $inc: { balance: merchantRevertAmount } }
+        );
+        await MerchantTransaction.findByIdAndDelete(transaction.merchantTransactionId);
+      }
+    }
 
     await BankTransaction.findByIdAndDelete(id);
 

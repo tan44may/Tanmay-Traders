@@ -23,6 +23,25 @@ const bankTransactionSchema = new mongoose.Schema({
   description: {
     type: String,
     required: false
+  },
+  transactionType: {
+    type: String,
+    enum: ['merchant payment', 'cash', 'imps'],
+    required: false
+  },
+  merchantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Merchant',
+    required: false
+  },
+  selectedBank: {
+    type: String,
+    required: false
+  },
+  merchantTransactionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'MerchantTransaction',
+    required: false
   }
 }, { timestamps: true });
 
