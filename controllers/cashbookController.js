@@ -75,7 +75,12 @@ const getOpeningBalance = async (targetDateStr) => {
         addValue(dStr, 'rdDeposits', t.amount || 0);
       }
     } else {
-      if (t.type === 'debit' && t.transactionType === 'self') {
+      const isSelf = t.transactionType === 'self' || 
+                     (t.description && (
+                       t.description.toLowerCase().includes('self') || 
+                       t.description.includes('सेल्फ')
+                     ));
+      if (t.type === 'debit' && isSelf) {
         addValue(dStr, 'bankSelfDebits', t.amount || 0);
       }
       if (t.type === 'credit') {
@@ -170,7 +175,12 @@ const getCashbookData = async (req, res) => {
           rdDepositsList.push(t);
         }
       } else {
-        if (t.type === 'debit' && t.transactionType === 'self') {
+        const isSelf = t.transactionType === 'self' || 
+                       (t.description && (
+                         t.description.toLowerCase().includes('self') || 
+                         t.description.includes('सेल्फ')
+                       ));
+        if (t.type === 'debit' && isSelf) {
           bankSelfDebits += t.amount || 0;
           bankSelfDebitsList.push(t);
         } else if (t.type === 'credit') {

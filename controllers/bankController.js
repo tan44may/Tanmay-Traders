@@ -170,40 +170,9 @@ const addBankTransaction = async (req, res) => {
       );
     }
 
-    // Handle customer payment automation for withdrawals (debit transactions)
-    if (type === 'debit' && (transactionType === 'cheque' || transactionType === 'RTGS' || transactionType === 'rtgs')) {
-      if (!customerId) {
-        return res.status(400).json({
-          success: false,
-          message: 'Customer is required for cheque/RTGS payment'
-        });
-      }
-
-      // Check if customer exists
+    // Load customer details for description helper if customerId is provided
+    if (customerId) {
       customer = await Customer.findById(customerId);
-      if (!customer) {
-        return res.status(404).json({
-          success: false,
-          message: 'Customer not found'
-        });
-      }
-
-      // Create customer transaction in gave (red) section
-      const customerTx = new CustomerTransaction({
-        customerId,
-        type: 'gave',
-        amount: txAmount,
-        date: date || Date.now(),
-        description: `Bank Withdrawal: ${transactionType.toUpperCase()}`
-      });
-
-      savedCustomerTx = await customerTx.save();
-
-      // Update customer balance (gave increases what they owe us)
-      await Customer.findByIdAndUpdate(
-        customerId,
-        { $inc: { balance: txAmount } }
-      );
     }
 
     // Set bank transaction description
