@@ -52,6 +52,10 @@ const billSchema = new mongoose.Schema({
     type: Number,
     required: true,
     default: 0,
+  },
+  isChecked: {
+    type: Boolean,
+    default: false,
   }
 }, { timestamps: true });
 

@@ -153,9 +153,37 @@ const deleteBill = async (req, res) => {
     });
   }
 };
+const toggleBillCheckStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isChecked } = req.body;
+
+    const bill = await Bill.findById(id);
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'Bill not found' });
+    }
+
+    bill.isChecked = isChecked !== undefined ? isChecked : !bill.isChecked;
+    const updated = await bill.save();
+
+    res.status(200).json({
+      success: true,
+      data: updated,
+      message: 'Bill check status updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating bill check status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update check status',
+      error: error.message
+    });
+  }
+};
 
 module.exports = {
   createBill,
   getAllBills,
-  deleteBill
+  deleteBill,
+  toggleBillCheckStatus
 };
