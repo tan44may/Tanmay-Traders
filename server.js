@@ -13,6 +13,7 @@ const cropRoutes = require('./routes/cropRoutes');
 const bankRoutes = require('./routes/bankRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const cashbookRoutes = require('./routes/cashbookRoutes');
+const employeeRoutes = require('./routes/employeeRoutes');
 
 const app = express();
 
@@ -48,6 +49,7 @@ app.use('/api/crop', cropRoutes);
 app.use('/api/bank', bankRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/cashbook', cashbookRoutes);
+app.use('/api/employee', employeeRoutes);
 
 app.get('/', (req, res) => {
   res.send('API running...');
