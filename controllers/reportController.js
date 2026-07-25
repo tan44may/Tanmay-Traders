@@ -4,6 +4,10 @@ const CustomerTransaction = require('../models/CustomerTransaction');
 const MerchantTransaction = require('../models/MerchantTransaction');
 const BankTransaction = require('../models/BankTransaction');
 const OtherAccountTransaction = require('../models/OtherAccountTransaction');
+const Customer = require('../models/Customer');
+const Merchant = require('../models/Merchant');
+const Crop = require('../models/Crop');
+const BankAccount = require('../models/BankAccount');
 
 const getDailyBalance = async (req, res) => {
   try {
@@ -109,7 +113,85 @@ const getCommissionsReport = async (req, res) => {
   }
 };
 
+const getDashboardStats = async (req, res) => {
+  try {
+    // Get today's local date in IST YYYY-MM-DD
+    const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+    // 1. Patti stats (arrivals and sales turnover)
+    const pattisToday = await Patti.find({ date: todayIST });
+    const todayArrivalsQty = pattisToday.reduce((sum, p) => sum + (p.quantity || 0), 0);
+    const todaySalesTurnover = pattisToday.reduce((sum, p) => sum + (p.grandTotal || 0), 0);
+
+    // 2. Bill stats (purchases turnover)
+    const billsToday = await Bill.find({ date: todayIST });
+    const todayPurchasesTurnover = billsToday.reduce((sum, b) => sum + (b.grandTotal || 0), 0);
+    const todayCommissions = billsToday.reduce((sum, b) => sum + (b.commissionAddition || 0), 0);
+
+    // 3. Counts
+    const activeMerchantsCount = await Merchant.countDocuments();
+    const activeCustomersCount = await Customer.countDocuments();
+    const cropVarietiesCount = await Crop.countDocuments();
+
+    // 4. Combined Recent Activity List (Pattis & Bills)
+    const recentPattis = await Patti.find().sort({ createdAt: -1 }).limit(5);
+    const recentBills = await Bill.find().sort({ createdAt: -1 }).limit(5);
+
+    const activities = [];
+    
+    recentPattis.forEach(p => {
+      activities.push({
+        id: p._id,
+        type: 'patti',
+        title: `${p.cropName} sold by ${p.customerName}`,
+        description: `Purchased by ${p.merchantName} (${p.quantity} Q @ ₹${p.rate}/Q)`,
+        amount: p.grandTotal,
+        time: p.createdAt || p.date,
+        icon: 'sprout'
+      });
+    });
+
+    recentBills.forEach(b => {
+      activities.push({
+        id: b._id,
+        type: 'bill',
+        title: `${b.cropName} bill registered for ${b.merchantName}`,
+        description: `Total weight ${b.quantity} Q @ rate ₹${b.rate}`,
+        amount: b.grandTotal,
+        time: b.createdAt || b.date,
+        icon: 'receipt'
+      });
+    });
+
+    // Sort combined activities by time descending
+    activities.sort((a, b) => new Date(b.time) - new Date(a.time));
+    const recentActivity = activities.slice(0, 5);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        todayArrivalsQty,
+        todaySalesTurnover,
+        todayPurchasesTurnover,
+        todayCommissions,
+        activeMerchantsCount,
+        activeCustomersCount,
+        cropVarietiesCount,
+        recentActivity
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch dashboard stats',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getDailyBalance,
-  getCommissionsReport
+  getCommissionsReport,
+  getDashboardStats
 };
