@@ -14,6 +14,8 @@ const bankRoutes = require('./routes/bankRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const cashbookRoutes = require('./routes/cashbookRoutes');
 const employeeRoutes = require('./routes/employeeRoutes');
+const otherAccountRoutes = require('./routes/otherAccountRoutes');
+const otherAccountTransactionRoutes = require('./routes/otherAccountTransactionRoutes');
 
 const app = express();
 
@@ -50,6 +52,8 @@ app.use('/api/bank', bankRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/cashbook', cashbookRoutes);
 app.use('/api/employee', employeeRoutes);
+app.use('/api/other-account', otherAccountRoutes);
+app.use('/api/other-account-transactions', otherAccountTransactionRoutes);
 
 app.get('/', (req, res) => {
   res.send('API running...');

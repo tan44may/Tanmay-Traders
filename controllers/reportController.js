@@ -3,38 +3,54 @@ const Bill = require('../models/Bill');
 const CustomerTransaction = require('../models/CustomerTransaction');
 const MerchantTransaction = require('../models/MerchantTransaction');
 const BankTransaction = require('../models/BankTransaction');
+const OtherAccountTransaction = require('../models/OtherAccountTransaction');
 
 const getDailyBalance = async (req, res) => {
   try {
-    const { date } = req.query; // Format: 'YYYY-MM-DD'
-    if (!date) {
-      return res.status(400).json({ success: false, message: 'Date parameter is required (YYYY-MM-DD)' });
+    const { date, startDate, endDate } = req.query;
+    
+    let start, end;
+    let pattiQuery = {};
+    let billQuery = {};
+    let rangeQuery = {};
+    
+    if (startDate && endDate) {
+      start = new Date(startDate + 'T00:00:00.000Z');
+      end = new Date(endDate + 'T23:59:59.999Z');
+      pattiQuery = { date: { $gte: startDate, $lte: endDate } };
+      billQuery = { date: { $gte: startDate, $lte: endDate } };
+      rangeQuery = { date: { $gte: start, $lte: end } };
+    } else if (date) {
+      start = new Date(date + 'T00:00:00.000Z');
+      end = new Date(date + 'T23:59:59.999Z');
+      pattiQuery = { date };
+      billQuery = { date };
+      rangeQuery = { date: { $gte: start, $lte: end } };
+    } else {
+      return res.status(400).json({ success: false, message: 'Date or date range (startDate & endDate) is required' });
     }
 
-    // Date range for BSON Date fields
-    const start = new Date(date + 'T00:00:00.000Z');
-    const end = new Date(date + 'T23:59:59.999Z');
+    // 1. Fetch Patti records
+    const pattis = await Patti.find(pattiQuery);
 
-    // 1. Fetch Patti records (date is String)
-    const pattis = await Patti.find({ date });
+    // 2. Fetch Bill records
+    const bills = await Bill.find(billQuery);
 
-    // 2. Fetch Bill records (date is String)
-    const bills = await Bill.find({ date });
+    // 3. Fetch Customer transactions
+    const customerTransactions = await CustomerTransaction.find(rangeQuery)
+      .populate('customerId', 'customerName');
 
-    // 3. Fetch Customer transactions (date is Date)
-    const customerTransactions = await CustomerTransaction.find({
-      date: { $gte: start, $lte: end }
-    }).populate('customerId', 'customerName');
+    // 4. Fetch Merchant transactions
+    const merchantTransactions = await MerchantTransaction.find(rangeQuery)
+      .populate('merchantId', 'merchantName');
 
-    // 4. Fetch Merchant transactions (date is Date)
-    const merchantTransactions = await MerchantTransaction.find({
-      date: { $gte: start, $lte: end }
-    }).populate('merchantId', 'merchantName');
+    // 5. Fetch Bank transactions
+    const bankTransactions = await BankTransaction.find(rangeQuery)
+      .populate('bankAccountId', 'bankName accountNumber');
 
-    // 5. Fetch Bank transactions (date is Date)
-    const bankTransactions = await BankTransaction.find({
-      date: { $gte: start, $lte: end }
-    }).populate('bankAccountId', 'bankName accountNumber');
+    // 6. Fetch Other Account transactions
+    const otherAccountTransactions = await OtherAccountTransaction.find(rangeQuery)
+      .populate('otherAccountId', 'otherAccountName');
 
     res.status(200).json({
       success: true,
@@ -43,7 +59,8 @@ const getDailyBalance = async (req, res) => {
         bills,
         customerTransactions,
         merchantTransactions,
-        bankTransactions
+        bankTransactions,
+        otherAccountTransactions
       }
     });
   } catch (error) {
