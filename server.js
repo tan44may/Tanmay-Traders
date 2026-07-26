@@ -16,6 +16,8 @@ const cashbookRoutes = require('./routes/cashbookRoutes');
 const employeeRoutes = require('./routes/employeeRoutes');
 const otherAccountRoutes = require('./routes/otherAccountRoutes');
 const otherAccountTransactionRoutes = require('./routes/otherAccountTransactionRoutes');
+const investmentRoutes = require('./routes/investmentRoutes');
+const { initScheduler } = require('./utils/scheduler');
 
 const app = express();
 
@@ -54,6 +56,7 @@ app.use('/api/cashbook', cashbookRoutes);
 app.use('/api/employee', employeeRoutes);
 app.use('/api/other-account', otherAccountRoutes);
 app.use('/api/other-account-transactions', otherAccountTransactionRoutes);
+app.use('/api/investments', investmentRoutes);
 
 app.get('/', (req, res) => {
   res.send('API running...');
@@ -62,6 +65,7 @@ if (require.main === module) {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
     console.log(`Server running locally on port ${PORT}`);
+    initScheduler();
   });
 }
 
