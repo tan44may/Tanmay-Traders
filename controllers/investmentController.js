@@ -1,5 +1,4 @@
 const Investment = require('../models/Investment');
-const { sendMaturityAlerts } = require('../utils/whatsappService');
 
 // @desc    Create a new investment (RD or FD)
 // @route   POST /api/investments
@@ -107,94 +106,8 @@ const deleteInvestment = async (req, res) => {
   }
 };
 
-// @desc    Check for investments maturing tomorrow and send WhatsApp alerts
-// @route   GET /api/investments/check-maturity
-// @access  Public
-const checkMaturityAndSendAlerts = async (req, res) => {
-  try {
-    // Determine tomorrow in Indian Standard Time (IST, UTC+5:30)
-    const now = new Date();
-    const istOffset = 5.5 * 60 * 60 * 1000;
-    const istTime = new Date(now.getTime() + istOffset);
-
-    // Tomorrow in IST
-    const istTomorrow = new Date(istTime);
-    istTomorrow.setDate(istTime.getDate() + 1);
-
-    // Start of tomorrow in IST: 00:00:00.000
-    const startOfTomorrowIST = new Date(
-      istTomorrow.getFullYear(),
-      istTomorrow.getMonth(),
-      istTomorrow.getDate(),
-      0, 0, 0, 0
-    );
-    const startOfTomorrowUTC = new Date(startOfTomorrowIST.getTime() - istOffset);
-
-    // End of tomorrow in IST: 23:59:59.999
-    const endOfTomorrowIST = new Date(
-      istTomorrow.getFullYear(),
-      istTomorrow.getMonth(),
-      istTomorrow.getDate(),
-      23, 59, 59, 999
-    );
-    const endOfTomorrowUTC = new Date(endOfTomorrowIST.getTime() - istOffset);
-
-    console.log(`[Scheduler] Checking maturity for IST date: ${istTomorrow.toLocaleDateString()}`);
-    console.log(`[Scheduler] Search window (UTC): ${startOfTomorrowUTC.toISOString()} to ${endOfTomorrowUTC.toISOString()}`);
-
-    // Query investments maturing tomorrow that haven't been alerted yet
-    const maturingInvestments = await Investment.find({
-      maturityDate: {
-        $gte: startOfTomorrowUTC,
-        $lte: endOfTomorrowUTC
-      },
-      alertSent: { $ne: true }
-    });
-
-    const sentAlerts = [];
-
-    for (const investment of maturingInvestments) {
-      await sendMaturityAlerts(investment);
-      
-      // Update investment state to indicate alert has been dispatched
-      investment.alertSent = true;
-      await investment.save();
-      
-      sentAlerts.push({
-        _id: investment._id,
-        accountNumber: investment.accountNumber,
-        investmentType: investment.investmentType
-      });
-    }
-
-    const message = `Processed ${maturingInvestments.length} maturing investments. ${sentAlerts.length} alerts successfully sent.`;
-    console.log(`[Scheduler] Check complete: ${message}`);
-
-    if (res) {
-      return res.status(200).json({
-        success: true,
-        count: sentAlerts.length,
-        data: sentAlerts,
-        message
-      });
-    }
-    return { success: true, count: sentAlerts.length, data: sentAlerts };
-  } catch (error) {
-    console.error('Error in checkMaturityAndSendAlerts:', error);
-    if (res) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to process maturity checks.',
-        error: error.message
-      });
-    }
-    throw error;
-  }
-};
-
 module.exports = {
   createInvestment,
   getAllInvestments,
-  deleteInvestment,
-  checkMaturityAndSendAlerts
+  deleteInvestment
 };

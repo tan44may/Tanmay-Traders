@@ -17,7 +17,6 @@ const employeeRoutes = require('./routes/employeeRoutes');
 const otherAccountRoutes = require('./routes/otherAccountRoutes');
 const otherAccountTransactionRoutes = require('./routes/otherAccountTransactionRoutes');
 const investmentRoutes = require('./routes/investmentRoutes');
-const { initScheduler } = require('./utils/scheduler');
 
 const app = express();
 
@@ -65,7 +64,6 @@ if (require.main === module) {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
     console.log(`Server running locally on port ${PORT}`);
-    initScheduler();
   });
 }
 
