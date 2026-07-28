@@ -196,7 +196,7 @@ const getDashboardStats = async (req, res) => {
   }
 };
 
-const calculateCashbookClosingBalance = async (targetDateStr) => {
+const calculateCashbookClosingBalanceInMemory = (targetDateStr, allBills, allBankTxns, allCustTransactions, allCashbook) => {
   const ANCHOR_DATE = '2026-07-04';
   const ANCHOR_VALUE = 37590;
 
@@ -210,13 +210,6 @@ const calculateCashbookClosingBalance = async (targetDateStr) => {
   const start = new Date(ANCHOR_DATE + 'T00:00:00.000Z');
   const nextDayDate = new Date(nextDayStr + 'T00:00:00.000Z');
 
-  const [bills, bankTxns, customerTxns, manualEntries] = await Promise.all([
-    Bill.find({ date: { $gte: ANCHOR_DATE, $lt: nextDayStr } }),
-    BankTransaction.find({ date: { $gte: start, $lt: nextDayDate } }).populate('bankAccountId'),
-    CustomerTransaction.find({ date: { $gte: start, $lt: nextDayDate } }),
-    CashbookEntry.find({ date: { $gte: ANCHOR_DATE, $lt: nextDayStr } })
-  ]);
-
   let bankSelfDebits = 0;
   let bankCredits = 0;
   let rdWithdrawals = 0;
@@ -228,53 +221,61 @@ const calculateCashbookClosingBalance = async (targetDateStr) => {
   let manualDeposits = 0;
   let manualWithdrawals = 0;
 
-  bills.forEach(b => {
-    totalBillsAmount += (b.grandTotal || 0);
-    commission += (b.commissionAddition || 0);
+  allBills.forEach(b => {
+    if (b.date && b.date >= ANCHOR_DATE && b.date < nextDayStr) {
+      totalBillsAmount += (b.grandTotal || 0);
+      commission += (b.commissionAddition || 0);
+    }
   });
 
-  bankTxns.forEach(t => {
-    const bankName = t.bankAccountId ? t.bankAccountId.bankName : '';
-    const isRD = bankName && (
-      bankName.includes('बुलढाणा') || 
-      bankName.includes('आदित्य') || 
-      bankName.toLowerCase().includes('buldhana') || 
-      bankName.toLowerCase().includes('aditya')
-    );
+  allBankTxns.forEach(t => {
+    if (t.date && t.date >= start && t.date < nextDayDate) {
+      const bankName = t.bankAccountId && typeof t.bankAccountId === 'object' ? t.bankAccountId.bankName : '';
+      const isRD = bankName && (
+        bankName.includes('बुलढाणा') || 
+        bankName.includes('आदित्य') || 
+        bankName.toLowerCase().includes('buldhana') || 
+        bankName.toLowerCase().includes('aditya')
+      );
 
-    if (isRD) {
-      if (t.type === 'debit') {
-        rdWithdrawals += t.amount || 0;
-      } else if (t.type === 'credit') {
-        rdDeposits += t.amount || 0;
-      }
-    } else {
-      const isSelf = t.transactionType === 'self' || 
-                     (t.description && (
-                       t.description.toLowerCase().includes('self') || 
-                       t.description.includes('सेल्फ')
-                     ));
-      if (t.type === 'debit' && isSelf) {
-        bankSelfDebits += t.amount || 0;
-      } else if (t.type === 'credit') {
-        bankCredits += t.amount || 0;
+      if (isRD) {
+        if (t.type === 'debit') {
+          rdWithdrawals += t.amount || 0;
+        } else if (t.type === 'credit') {
+          rdDeposits += t.amount || 0;
+        }
+      } else {
+        const isSelf = t.transactionType === 'self' || 
+                       (t.description && (
+                         t.description.toLowerCase().includes('self') || 
+                         t.description.includes('सेल्फ')
+                       ));
+        if (t.type === 'debit' && isSelf) {
+          bankSelfDebits += t.amount || 0;
+        } else if (t.type === 'credit') {
+          bankCredits += t.amount || 0;
+        }
       }
     }
   });
 
-  customerTxns.forEach(t => {
-    if (t.type === 'got') {
-      customerGot += t.amount || 0;
-    } else if (t.type === 'gave') {
-      customerGave += t.amount || 0;
+  allCustTransactions.forEach(t => {
+    if (t.date && t.date >= start && t.date < nextDayDate) {
+      if (t.type === 'got') {
+        customerGot += t.amount || 0;
+      } else if (t.type === 'gave') {
+        customerGave += t.amount || 0;
+      }
     }
   });
 
-  manualEntries.forEach(e => {
-    if (e.type === 'deposit') {
-      manualDeposits += e.amount || 0;
-    } else if (e.type === 'withdrawal') {
-      manualWithdrawals += e.amount || 0;
+  allCashbook.forEach(e => {
+    if (e.date && e.date >= ANCHOR_DATE && e.date < nextDayStr) {
+      if (e.type === 'deposit') {
+        manualDeposits += e.amount || 0;
+      } else if (e.type === 'withdrawal') {
+        manualWithdrawals += e.amount || 0;
+      }
     }
   });
 
@@ -286,12 +287,44 @@ const calculateCashbookClosingBalance = async (targetDateStr) => {
 
 const getAnalyticsReport = async (req, res) => {
   try {
-    // 1. Patti Analytics
-    const allPattis = await Patti.find({});
+    // 1. Fetch ALL required data IN PARALLEL using Promise.all (Removes 20+ sequential database requests)
+    const [
+      allPattis,
+      allBills,
+      allCashbook,
+      allBanks,
+      allBankTxns,
+      allCustomers,
+      allCustTransactions,
+      allMerchants,
+      allMerchTransactions,
+      allEmployees,
+      allEmployeeTxns,
+      allInvestments,
+      allOtherAccs,
+      allOtherAccTransactions
+    ] = await Promise.all([
+      Patti.find({}),
+      Bill.find({}),
+      CashbookEntry.find({}),
+      BankAccount.find({}),
+      BankTransaction.find({}).populate('bankAccountId'),
+      Customer.find({}),
+      CustomerTransaction.find({}),
+      Merchant.find({}),
+      MerchantTransaction.find({}),
+      Employee.find({}),
+      EmployeeTransaction.find({}).populate('employeeId', 'employeeName'),
+      Investment.find({}),
+      OtherAccount.find({}),
+      OtherAccountTransaction.find({})
+    ]);
+
+    // 2. Patti Analytics (In-Memory)
     const totalPattisCount = allPattis.length;
     const totalPattiSales = allPattis.reduce((sum, p) => sum + (p.grandTotal || 0), 0);
-    const highestPatti = await Patti.findOne({ grandTotal: { $gt: 0 } }).sort({ grandTotal: -1 }).limit(1);
-    const lowestPatti = await Patti.findOne({ grandTotal: { $gt: 0 } }).sort({ grandTotal: 1 }).limit(1);
+    const highestPatti = allPattis.length > 0 ? [...allPattis].sort((a, b) => (b.grandTotal || 0) - (a.grandTotal || 0))[0] : null;
+    const lowestPatti = allPattis.filter(p => (p.grandTotal || 0) > 0).sort((a, b) => (a.grandTotal || 0) - (b.grandTotal || 0))[0] || null;
 
     const pattiCropAggregation = {};
     allPattis.forEach(p => {
@@ -304,29 +337,27 @@ const getAnalyticsReport = async (req, res) => {
       value: pattiCropAggregation[crop]
     }));
 
-    // Patti Monthly Trend
     const monthlyPattiSalesMap = {};
     allPattis.forEach(p => {
       if (p.date && p.date.length >= 7) {
-        const month = p.date.substring(0, 7); // "YYYY-MM"
+        const month = p.date.substring(0, 7);
         monthlyPattiSalesMap[month] = (monthlyPattiSalesMap[month] || 0) + (p.grandTotal || 0);
       }
     });
-const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
+    const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
       .sort()
       .map(month => ({
         month,
         value: monthlyPattiSalesMap[month]
       }));
 
-    // 2. Bill & Commission Analytics
-    const allBills = await Bill.find({});
+    // 3. Bill & Commission Analytics (In-Memory)
     const totalBillsCount = allBills.length;
     const totalBillPurchases = allBills.reduce((sum, b) => sum + (b.grandTotal || 0), 0);
-    const highestBill = await Bill.findOne({ grandTotal: { $gt: 0 } }).sort({ grandTotal: -1 }).limit(1);
-    const lowestBill = await Bill.findOne({ grandTotal: { $gt: 0 } }).sort({ grandTotal: 1 }).limit(1);
-    const highestCommissionBill = await Bill.findOne({ commissionAddition: { $gt: 0 } }).sort({ commissionAddition: -1 }).limit(1);
-    const lowestCommissionBill = await Bill.findOne({ commissionAddition: { $gt: 0 } }).sort({ commissionAddition: 1 }).limit(1);
+    const highestBill = allBills.length > 0 ? [...allBills].sort((a, b) => (b.grandTotal || 0) - (a.grandTotal || 0))[0] : null;
+    const lowestBill = allBills.filter(b => (b.grandTotal || 0) > 0).sort((a, b) => (a.grandTotal || 0) - (b.grandTotal || 0))[0] || null;
+    const highestCommissionBill = allBills.length > 0 ? [...allBills].sort((a, b) => (b.commissionAddition || 0) - (a.commissionAddition || 0))[0] : null;
+    const lowestCommissionBill = allBills.filter(b => (b.commissionAddition || 0) > 0).sort((a, b) => (a.commissionAddition || 0) - (b.commissionAddition || 0))[0] || null;
 
     const billCropAggregation = {};
     allBills.forEach(b => {
@@ -339,11 +370,10 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
       value: billCropAggregation[crop]
     }));
 
-    // Commissions Monthly Trend
     const monthlyCommissionsMap = {};
     allBills.forEach(b => {
       if (b.date && b.date.length >= 7) {
-        const month = b.date.substring(0, 7); // "YYYY-MM"
+        const month = b.date.substring(0, 7);
         monthlyCommissionsMap[month] = (monthlyCommissionsMap[month] || 0) + (b.commissionAddition || 0);
       }
     });
@@ -354,7 +384,6 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
         value: monthlyCommissionsMap[month]
       }));
 
-    // Bill Purchases Monthly Trend
     const monthlyBillPurchasesMap = {};
     allBills.forEach(b => {
       if (b.date && b.date.length >= 7) {
@@ -369,12 +398,13 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
         value: monthlyBillPurchasesMap[month]
       }));
 
-    // 3. Cashbook Analytics
-    const allCashbook = await CashbookEntry.find({});
-    const highestDeposit = await CashbookEntry.findOne({ type: 'deposit', amount: { $gt: 0 } }).sort({ amount: -1 }).limit(1);
-    const lowestDeposit = await CashbookEntry.findOne({ type: 'deposit', amount: { $gt: 0 } }).sort({ amount: 1 }).limit(1);
-    const highestWithdrawal = await CashbookEntry.findOne({ type: 'withdrawal', amount: { $gt: 0 } }).sort({ amount: -1 }).limit(1);
-    const lowestWithdrawal = await CashbookEntry.findOne({ type: 'withdrawal', amount: { $gt: 0 } }).sort({ amount: 1 }).limit(1);
+    // 4. Cashbook Analytics (In-Memory)
+    const deposits = allCashbook.filter(c => c.type === 'deposit');
+    const withdrawals = allCashbook.filter(c => c.type === 'withdrawal');
+    const highestDeposit = deposits.length > 0 ? [...deposits].sort((a, b) => (b.amount || 0) - (a.amount || 0))[0] : null;
+    const lowestDeposit = deposits.filter(c => (c.amount || 0) > 0).sort((a, b) => (a.amount || 0) - (b.amount || 0))[0] || null;
+    const highestWithdrawal = withdrawals.length > 0 ? [...withdrawals].sort((a, b) => (b.amount || 0) - (a.amount || 0))[0] : null;
+    const lowestWithdrawal = withdrawals.filter(c => (c.amount || 0) > 0).sort((a, b) => (a.amount || 0) - (b.amount || 0))[0] || null;
 
     let totalDeposits = 0;
     let totalWithdrawals = 0;
@@ -383,7 +413,6 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
       if (c.type === 'withdrawal') totalWithdrawals += (c.amount || 0);
     });
 
-    // Cashbook Monthly Flow
     const monthlyCashbookMap = {};
     allCashbook.forEach(c => {
       if (c.date && c.date.length >= 7) {
@@ -406,28 +435,27 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
         withdrawal: monthlyCashbookMap[month].withdrawal
       }));
 
-    // 4. Bank Account Analytics
-    const allBanks = await BankAccount.find({});
-    const highestBank = await BankAccount.findOne({ balance: { $gt: 0 } }).sort({ balance: -1 }).limit(1);
-    const lowestBank = await BankAccount.findOne({ balance: { $gt: 0 } }).sort({ balance: 1 }).limit(1);
+    // 5. Bank Account Analytics (In-Memory)
+    const highestBank = allBanks.length > 0 ? [...allBanks].sort((a, b) => (b.balance || 0) - (a.balance || 0))[0] : null;
+    const lowestBank = allBanks.length > 0 ? [...allBanks].sort((a, b) => (a.balance || 0) - (b.balance || 0))[0] : null;
     const totalBankBalance = allBanks.reduce((sum, b) => sum + (b.balance || 0), 0);
     const bankBalanceData = allBanks.map(b => ({
       name: b.bankName + (b.accountNumber ? ` (${b.accountNumber.slice(-4)})` : ''),
       value: b.balance || 0
     }));
 
-    // Bank Account debit/credit breakdown
-    const allBankTxns = await BankTransaction.find({});
     const bankTxnSummary = {};
     allBankTxns.forEach(t => {
-      const bid = t.bankAccountId.toString();
-      if (!bankTxnSummary[bid]) {
-        bankTxnSummary[bid] = { debit: 0, credit: 0 };
-      }
-      if (t.type === 'debit') {
-        bankTxnSummary[bid].debit += (t.amount || 0);
-      } else if (t.type === 'credit') {
-        bankTxnSummary[bid].credit += (t.amount || 0);
+      if (t.bankAccountId) {
+        const bid = t.bankAccountId._id ? t.bankAccountId._id.toString() : t.bankAccountId.toString();
+        if (!bankTxnSummary[bid]) {
+          bankTxnSummary[bid] = { debit: 0, credit: 0 };
+        }
+        if (t.type === 'debit') {
+          bankTxnSummary[bid].debit += (t.amount || 0);
+        } else if (t.type === 'credit') {
+          bankTxnSummary[bid].credit += (t.amount || 0);
+        }
       }
     });
     const bankDetails = allBanks.map(b => ({
@@ -439,7 +467,6 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
       credit: bankTxnSummary[b._id.toString()]?.credit || 0
     }));
 
-    // Bank Monthly Transactions Trend
     const bankMonthlyMap = {};
     allBankTxns.forEach(t => {
       const dateStr = t.date ? new Date(t.date).toISOString().substring(0, 7) : t.createdAt?.toISOString().substring(0, 7);
@@ -457,13 +484,7 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
         credit: bankMonthlyMap[month].credit
       }));
 
-    // 5. Customer Analytics
-    const allCustomers = await Customer.find({});
-    const highestCustBal = await Customer.findOne({ balance: { $gt: 0 } }).sort({ balance: -1 }).limit(1);
-    const lowestCustBal = await Customer.findOne({ balance: { $gt: 0 } }).sort({ balance: 1 }).limit(1);
-    
-    // Customer Detailed Interest / Lending
-    const allCustTransactions = await CustomerTransaction.find({});
+    // 6. Customer Analytics (In-Memory)
     const custTxnMap = {};
     allCustTransactions.forEach(t => {
       if (t.customerId) {
@@ -506,7 +527,9 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
       .slice(0, 5)
       .map(c => ({ name: c.customerName, value: c.balance }));
 
-    // Customer monthly gave vs got trend
+    const highestCustBal = customerDetails.length > 0 ? [...customerDetails].sort((a, b) => (b.balance || 0) - (a.balance || 0))[0] : null;
+    const lowestCustBal = customerDetails.filter(c => (c.balance || 0) > 0).sort((a, b) => (a.balance || 0) - (b.balance || 0))[0] || null;
+
     const customerMonthlyMap = {};
     allCustTransactions.forEach(t => {
       const dateStr = t.date ? new Date(t.date).toISOString().substring(0, 7) : t.createdAt?.toISOString().substring(0, 7);
@@ -524,10 +547,9 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
         received: customerMonthlyMap[month].received
       }));
 
-    // 6. Merchant Analytics
-    const allMerchants = await Merchant.find({});
-    const highestMerchBal = await Merchant.findOne({ balance: { $gt: 0 } }).sort({ balance: -1 }).limit(1);
-    const lowestMerchBal = await Merchant.findOne({ balance: { $gt: 0 } }).sort({ balance: 1 }).limit(1);
+    // 7. Merchant Analytics (In-Memory)
+    const highestMerchBal = allMerchants.length > 0 ? [...allMerchants].sort((a, b) => (b.balance || 0) - (a.balance || 0))[0] : null;
+    const lowestMerchBal = allMerchants.length > 0 ? [...allMerchants].sort((a, b) => (a.balance || 0) - (b.balance || 0))[0] : null;
     const totalMerchBalance = allMerchants.reduce((sum, m) => sum + (m.balance || 0), 0);
     const topMerchants = allMerchants
       .filter(m => m.balance > 0)
@@ -535,7 +557,6 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
       .slice(0, 5)
       .map(m => ({ name: m.merchantName, value: m.balance }));
 
-    // Merchant buy volume detail
     const merchantPattiBuyMap = {};
     allPattis.forEach(p => {
       if (p.merchantName) {
@@ -553,8 +574,6 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
       };
     });
 
-    // Merchant monthly gave vs got trend
-    const allMerchTransactions = await MerchantTransaction.find({});
     const merchantMonthlyMap = {};
     allMerchTransactions.forEach(t => {
       const dateStr = t.date ? new Date(t.date).toISOString().substring(0, 7) : t.createdAt?.toISOString().substring(0, 7);
@@ -572,19 +591,16 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
         got: merchantMonthlyMap[month].got
       }));
 
-    // 7. Employee Analytics
-    const allEmployees = await Employee.find({});
-    const highestWeeklySalaryEmp = await Employee.findOne({ weeklySalary: { $gt: 0 } }).sort({ weeklySalary: -1 }).limit(1);
-    const lowestWeeklySalaryEmp = await Employee.findOne({ weeklySalary: { $gt: 0 } }).sort({ weeklySalary: 1 }).limit(1);
-    const highestEmpTxn = await EmployeeTransaction.findOne({ amount: { $gt: 0 } }).populate('employeeId', 'employeeName').sort({ amount: -1 }).limit(1);
-    const lowestEmpTxn = await EmployeeTransaction.findOne({ amount: { $gt: 0 } }).populate('employeeId', 'employeeName').sort({ amount: 1 }).limit(1);
+    // 8. Employee Analytics (In-Memory)
+    const highestWeeklySalaryEmp = allEmployees.length > 0 ? [...allEmployees].sort((a, b) => (b.weeklySalary || 0) - (a.weeklySalary || 0))[0] : null;
+    const lowestWeeklySalaryEmp = allEmployees.filter(e => (e.weeklySalary || 0) > 0).sort((a, b) => (e.weeklySalary || 0) - (b.weeklySalary || 0))[0] || null;
+    const highestEmpTxn = allEmployeeTxns.length > 0 ? [...allEmployeeTxns].sort((a, b) => (b.amount || 0) - (a.amount || 0))[0] : null;
+    const lowestEmpTxn = allEmployeeTxns.filter(t => (t.amount || 0) > 0).sort((a, b) => (a.amount || 0) - (b.amount || 0))[0] || null;
 
-    // Employee payroll detailed overview
-    const allEmployeeTxns = await EmployeeTransaction.find({});
     const empTxnSummary = {};
     allEmployeeTxns.forEach(t => {
       if (t.employeeId) {
-        const eid = t.employeeId.toString();
+        const eid = t.employeeId._id ? t.employeeId._id.toString() : t.employeeId.toString();
         if (!empTxnSummary[eid]) {
           empTxnSummary[eid] = { salaryEarned: 0, paymentsReceived: 0 };
         }
@@ -605,7 +621,6 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
       paymentsReceived: empTxnSummary[e._id.toString()]?.paymentsReceived || 0
     }));
 
-    // Employee monthly gave vs got (Salary vs Payment) trend
     const employeeMonthlyMap = {};
     allEmployeeTxns.forEach(t => {
       const dateStr = t.date ? new Date(t.date).toISOString().substring(0, 7) : t.createdAt?.toISOString().substring(0, 7);
@@ -623,11 +638,10 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
         payment: employeeMonthlyMap[month].payment
       }));
 
-    // 8. Investments Analytics
-    const allInvestments = await Investment.find({});
-    const highestInvestment = await Investment.findOne({ investAmount: { $gt: 0 } }).sort({ investAmount: -1 }).limit(1);
-    const lowestInvestment = await Investment.findOne({ investAmount: { $gt: 0 } }).sort({ investAmount: 1 }).limit(1);
-    
+    // 9. Investments Analytics (In-Memory)
+    const highestInvestment = allInvestments.length > 0 ? [...allInvestments].sort((a, b) => (b.investAmount || 0) - (a.investAmount || 0))[0] : null;
+    const lowestInvestment = allInvestments.filter(i => (i.investAmount || 0) > 0).sort((a, b) => (a.investAmount || 0) - (b.investAmount || 0))[0] || null;
+
     let totalFD = 0;
     let totalRD = 0;
     allInvestments.forEach(i => {
@@ -635,7 +649,6 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
       if (i.investmentType === 'RD') totalRD += (i.investAmount || 0);
     });
 
-    // Investments monthly trend
     const investmentMonthlyMap = {};
     allInvestments.forEach(i => {
       const dateStr = i.createdAt ? new Date(i.createdAt).toISOString().substring(0, 7) : null;
@@ -650,18 +663,15 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
         value: investmentMonthlyMap[month]
       }));
 
-    // 9. Other Accounts Analytics
-    const allOtherAccs = await OtherAccount.find({});
-    const highestOtherAcc = await OtherAccount.findOne({ balance: { $gt: 0 } }).sort({ balance: -1 }).limit(1);
-    const lowestOtherAcc = await OtherAccount.findOne({ balance: { $gt: 0 } }).sort({ balance: 1 }).limit(1);
+    // 10. Other Accounts Analytics (In-Memory)
+    const highestOtherAcc = allOtherAccs.length > 0 ? [...allOtherAccs].sort((a, b) => (b.balance || 0) - (a.balance || 0))[0] : null;
+    const lowestOtherAcc = allOtherAccs.length > 0 ? [...allOtherAccs].sort((a, b) => (a.balance || 0) - (b.balance || 0))[0] : null;
     const totalOtherAccBalance = allOtherAccs.reduce((sum, o) => sum + (o.balance || 0), 0);
     const otherAccBalanceData = allOtherAccs.map(o => ({
       name: o.otherAccountName,
       value: o.balance || 0
     }));
 
-    // Other Accounts monthly trend
-    const allOtherAccTransactions = await OtherAccountTransaction.find({});
     const otherAccMonthlyMap = {};
     allOtherAccTransactions.forEach(t => {
       const dateStr = t.date ? new Date(t.date).toISOString().substring(0, 7) : t.createdAt?.toISOString().substring(0, 7);
@@ -676,20 +686,18 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
         value: otherAccMonthlyMap[month]
       }));
 
-    // Calculate today's cashbook cash (India IST) using exact cashbook ledger closing balance
-    const tzOffset = 5.5 * 60 * 60 * 1000; // IST timezone offset
+    // 11. P&L & Cashbook Calculations (In-Memory)
+    const tzOffset = 5.5 * 60 * 60 * 1000;
     const todayIST = new Date(Date.now() + tzOffset).toISOString().split('T')[0];
-    const dailyCashbookCash = await calculateCashbookClosingBalance(todayIST);
+    const dailyCashbookCash = calculateCashbookClosingBalanceInMemory(todayIST, allBills, allBankTxns, allCustTransactions, allCashbook);
 
-    // Calculate Profit & Loss history for the last 7 days
     const last7Days = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(Date.now() + tzOffset - i * 24 * 60 * 60 * 1000);
       last7Days.push(d.toISOString().split('T')[0]);
     }
 
-    const pnlHistoryPromises = last7Days.map(async (dayStr) => {
-      // 1. Bank Outstanding at the end of dayStr
+    const pnlHistory = last7Days.map((dayStr) => {
       let bankBal = totalBankBalance;
       allBankTxns.forEach(t => {
         const tDate = t.date ? new Date(t.date).toISOString().substring(0, 10) : t.createdAt?.toISOString().substring(0, 10);
@@ -699,7 +707,6 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
         }
       });
 
-      // 2. Customer Outstanding at the end of dayStr
       let custBal = totalCustBalance;
       allCustTransactions.forEach(t => {
         const tDate = t.date ? new Date(t.date).toISOString().substring(0, 10) : t.createdAt?.toISOString().substring(0, 10);
@@ -709,7 +716,6 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
         }
       });
 
-      // 3. Merchant Outstanding at the end of dayStr
       let merchBal = totalMerchBalance;
       allMerchTransactions.forEach(t => {
         const tDate = t.date ? new Date(t.date).toISOString().substring(0, 10) : t.createdAt?.toISOString().substring(0, 10);
@@ -719,23 +725,14 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
         }
       });
 
-      // 4. Cashbook closing balance at the end of dayStr
-      const dailyCash = await calculateCashbookClosingBalance(dayStr);
-
-      // P&L calculation: bank (with formula 1200000+bankOutstanding) + customer + merchant + dailyCash - 1200000
-      // which simplifies to: bankBal + custBal + merchBal + dailyCash
+      const dailyCash = calculateCashbookClosingBalanceInMemory(dayStr, allBills, allBankTxns, allCustTransactions, allCashbook);
       const val = bankBal + custBal + merchBal + dailyCash;
 
-      // format date as "MM-DD" for cleaner chart display
-      const formattedDate = dayStr.substring(5);
-
       return {
-        name: formattedDate, // "MM-DD"
+        name: dayStr.substring(5),
         value: val
       };
     });
-
-    const pnlHistory = await Promise.all(pnlHistoryPromises);
 
     res.status(200).json({
       success: true,
@@ -835,6 +832,7 @@ const pattiMonthlyTrend = Object.keys(monthlyPattiSalesMap)
     });
   }
 };
+
 
 module.exports = {
   getDailyBalance,
