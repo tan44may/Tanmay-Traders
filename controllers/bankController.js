@@ -184,6 +184,8 @@ const addBankTransaction = async (req, res) => {
         txDescription = 'Cash';
       } else if (transactionType === 'imps') {
         txDescription = description || 'IMPS Transfer';
+      } else if (transactionType === 'cheque') {
+        txDescription = `Customer: ${customer ? customer.customerName : ''} (CHEQUE)`;
       }
     } else if (type === 'debit') {
       if (transactionType === 'self') {
@@ -204,7 +206,7 @@ const addBankTransaction = async (req, res) => {
       merchantId: (type === 'credit' && transactionType === 'merchant payment') ? merchantId : undefined,
       selectedBank: (type === 'credit' && transactionType === 'merchant payment') ? selectedBank : undefined,
       merchantTransactionId: savedMerchantTx ? savedMerchantTx._id : undefined,
-      customerId: (type === 'debit' && (transactionType === 'cheque' || transactionType === 'rtgs' || transactionType === 'RTGS')) ? customerId : undefined,
+      customerId: ((type === 'debit' || type === 'credit') && (transactionType === 'cheque' || transactionType === 'rtgs' || transactionType === 'RTGS')) ? customerId : undefined,
       customerTransactionId: savedCustomerTx ? savedCustomerTx._id : undefined
     });
 
