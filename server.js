@@ -17,11 +17,14 @@ const employeeRoutes = require('./routes/employeeRoutes');
 const otherAccountRoutes = require('./routes/otherAccountRoutes');
 const otherAccountTransactionRoutes = require('./routes/otherAccountTransactionRoutes');
 const investmentRoutes = require('./routes/investmentRoutes');
+const authRoutes = require('./routes/authRoutes');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+const User = require('./models/User');
 
 // ✅ DB connection logic
 let isConnected = false;
@@ -33,6 +36,28 @@ const connectDB = async () => {
   isConnected = db.connections[0].readyState === 1;
 
   console.log("MongoDB Connected");
+
+  // Seed default users if they don't exist
+  try {
+    const userCount = await User.countDocuments();
+    if (userCount === 0) {
+      console.log("Seeding default users...");
+      const adminUser = new User({
+        username: 'admin',
+        password: 'Bright9%'
+      });
+      await adminUser.save();
+
+      const tanmayUser = new User({
+        username: 'tanmay',
+        password: '9011874112'
+      });
+      await tanmayUser.save();
+      console.log("Seeded admin and tanmay users successfully.");
+    }
+  } catch (err) {
+    console.error("Error seeding users:", err);
+  }
 };
 
 // ✅ IMPORTANT: connect BEFORE routes
@@ -56,6 +81,7 @@ app.use('/api/employee', employeeRoutes);
 app.use('/api/other-account', otherAccountRoutes);
 app.use('/api/other-account-transactions', otherAccountTransactionRoutes);
 app.use('/api/investments', investmentRoutes);
+app.use('/api/auth', authRoutes);
 
 app.get('/', (req, res) => {
   res.send('API running...');

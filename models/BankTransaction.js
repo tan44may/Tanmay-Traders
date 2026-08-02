@@ -26,7 +26,7 @@ const bankTransactionSchema = new mongoose.Schema({
   },
   transactionType: {
     type: String,
-    enum: ['merchant payment', 'cash', 'imps', 'self', 'cheque', 'rtgs'],
+    enum: ['merchant payment', 'cash', 'imps', 'self', 'cheque', 'rtgs', 'interest', 'intrest', 'charges'],
     required: false
   },
   merchantId: {

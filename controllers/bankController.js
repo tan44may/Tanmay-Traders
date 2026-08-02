@@ -192,6 +192,12 @@ const addBankTransaction = async (req, res) => {
         txDescription = 'Self';
       } else if (transactionType === 'cheque' || transactionType === 'RTGS' || transactionType === 'rtgs') {
         txDescription = `Customer: ${customer ? customer.customerName : ''} (${transactionType.toUpperCase()})`;
+      } else if (transactionType === 'interest' || transactionType === 'intrest') {
+        txDescription = description || 'Interest';
+      } else if (transactionType === 'charges') {
+        txDescription = description || 'Charges';
+      } else if (transactionType === 'imps') {
+        txDescription = description || 'IMPS Transfer';
       }
     }
 
