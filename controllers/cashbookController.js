@@ -3,6 +3,8 @@ const Bill = require('../models/Bill');
 const CustomerTransaction = require('../models/CustomerTransaction');
 const BankTransaction = require('../models/BankTransaction');
 const CashbookEntry = require('../models/CashbookEntry');
+const CashDenomination = require('../models/CashDenomination');
+const { sendCashSummaryNotification } = require('../utils/notificationService');
 
 // Get opening balance for a target date
 const getOpeningBalance = async (targetDateStr) => {
@@ -134,12 +136,13 @@ const getCashbookData = async (req, res) => {
     const end = new Date(date + 'T23:59:59.999Z');
 
     // Fetch dynamic entries for this date
-    const [bills, bankTxns, customerTxns, manualEntries, openingBalance] = await Promise.all([
+    const [bills, bankTxns, customerTxns, manualEntries, openingBalance, savedDenomination] = await Promise.all([
       Bill.find({ date }),
       BankTransaction.find({ date: { $gte: start, $lte: end } }).populate('bankAccountId'),
       CustomerTransaction.find({ date: { $gte: start, $lte: end } }).populate('customerId', 'customerName'),
       CashbookEntry.find({ date }),
-      getOpeningBalance(date)
+      getOpeningBalance(date),
+      CashDenomination.findOne({ date })
     ]);
 
     // Calculate Today's figures
@@ -249,7 +252,8 @@ const getCashbookData = async (req, res) => {
           customerGave: { amount: customerGave, list: customerGaveList },
           manualWithdrawals: { amount: manualWithdrawals, list: manualWithdrawalsList },
           rdDeposits: { amount: rdDeposits, list: rdDepositsList }
-        }
+        },
+        denomination: savedDenomination || null
       }
     });
   } catch (error) {
@@ -300,8 +304,142 @@ const deleteCashbookEntry = async (req, res) => {
   }
 };
 
+// @desc    Get saved denomination for a date
+// @route   GET /api/cashbook/denomination
+// @access  Public
+const getDenomination = async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) {
+      return res.status(400).json({ success: false, message: 'Date parameter is required' });
+    }
+    const record = await CashDenomination.findOne({ date });
+    res.status(200).json({ success: true, data: record || null });
+  } catch (error) {
+    console.error('Error fetching denomination:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch denomination', error: error.message });
+  }
+};
+
+// @desc    Save or update denomination for a date and send summary to 9011874112 & 8788594766
+// @route   POST /api/cashbook/denomination
+// @access  Public
+const saveDenomination = async (req, res) => {
+  try {
+    const { date, counts, totalNotes, totalAmount, cashbookBalance, isMatched, remarks } = req.body;
+    if (!date) {
+      return res.status(400).json({ success: false, message: 'Date is required' });
+    }
+
+    const matchedStatus = (isMatched !== undefined)
+      ? Boolean(isMatched)
+      : (Math.trunc(Number(cashbookBalance) || 0) === Math.trunc(Number(totalAmount) || 0));
+
+    // Send summary via WhatsApp / SMS to 9011874112 & 8788594766 without redirection
+    let notificationResult = null;
+    try {
+      notificationResult = await sendCashSummaryNotification({
+        date,
+        counts: counts || {},
+        totalNotes: Number(totalNotes) || 0,
+        totalAmount: Number(totalAmount) || 0,
+        cashbookBalance: Number(cashbookBalance) || 0,
+        isMatched: matchedStatus,
+        remarks: remarks || ''
+      });
+    } catch (notifErr) {
+      console.error('Error dispatching cash summary notification:', notifErr);
+      notificationResult = {
+        sent: false,
+        channel: null,
+        details: notifErr.message
+      };
+    }
+
+    const updated = await CashDenomination.findOneAndUpdate(
+      { date },
+      {
+        date,
+        counts: counts || {},
+        totalNotes: Number(totalNotes) || 0,
+        totalAmount: Number(totalAmount) || 0,
+        cashbookBalance: Number(cashbookBalance) || 0,
+        isMatched: matchedStatus,
+        remarks: remarks || '',
+        notificationStatus: {
+          sent: notificationResult ? Boolean(notificationResult.sent) : false,
+          channel: notificationResult ? notificationResult.channel : null,
+          recipients: notificationResult && notificationResult.recipients ? notificationResult.recipients : ['9011874112', '8788594766'],
+          sentAt: new Date(),
+          details: notificationResult ? (notificationResult.details || '') : ''
+        }
+      },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: updated,
+      notification: notificationResult,
+      message: 'Denomination saved and summary processed successfully'
+    });
+  } catch (error) {
+    console.error('Error saving denomination:', error);
+    res.status(500).json({ success: false, message: 'Failed to save denomination', error: error.message });
+  }
+};
+
+// @desc    Resend denomination summary to 9011874112 & 8788594766
+// @route   POST /api/cashbook/denomination/resend-summary
+// @access  Public
+const resendDenominationSummary = async (req, res) => {
+  try {
+    const { date } = req.body;
+    if (!date) {
+      return res.status(400).json({ success: false, message: 'Date is required' });
+    }
+
+    const record = await CashDenomination.findOne({ date });
+    if (!record) {
+      return res.status(404).json({ success: false, message: 'No denomination record found for this date to resend' });
+    }
+
+    const notificationResult = await sendCashSummaryNotification({
+      date: record.date,
+      counts: record.counts,
+      totalNotes: record.totalNotes,
+      totalAmount: record.totalAmount,
+      cashbookBalance: record.cashbookBalance,
+      isMatched: record.isMatched,
+      remarks: record.remarks
+    });
+
+    record.notificationStatus = {
+      sent: notificationResult ? Boolean(notificationResult.sent) : false,
+      channel: notificationResult ? notificationResult.channel : null,
+      recipients: notificationResult && notificationResult.recipients ? notificationResult.recipients : ['9011874112', '8788594766'],
+      sentAt: new Date(),
+      details: notificationResult ? (notificationResult.details || '') : ''
+    };
+    await record.save();
+
+    res.status(200).json({
+      success: true,
+      data: record,
+      notification: notificationResult,
+      message: 'Summary notification resent successfully'
+    });
+  } catch (error) {
+    console.error('Error resending denomination summary:', error);
+    res.status(500).json({ success: false, message: 'Failed to resend summary', error: error.message });
+  }
+};
+
 module.exports = {
   getCashbookData,
   addCashbookEntry,
-  deleteCashbookEntry
+  deleteCashbookEntry,
+  getDenomination,
+  saveDenomination,
+  resendDenominationSummary
 };
